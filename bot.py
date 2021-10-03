@@ -80,7 +80,7 @@ class Hand:
                 points += 10
         for card in self.myhandarray:
             if int(card.number) == 1:
-                if 21 - points > 11:
+                if 21 - points >= 11:
                     points += 11
                 else: 
                     points += 1           
@@ -191,16 +191,18 @@ async def on_message(message):
             if dealerhand.calcPoints() < 17:
                 await message.reply("The Dealer Hits")
                 dealerhand.addCard(await deck.deal(message))
+            else:
+                await message.reply("The Dealer Stands")
             if dealerhand.calcPoints() > 21:
                 await message.reply("The Dealer Busts")
                 await message.reply("You win!")
-                data.pop(message.author.reply)
+                data.pop(message.author.name)
+                await dealerhand.display(message, dealer = True)
                 dealerhand = Hand()
-                await dealerhand.display(message, dealer = True, reveal = True)
+               
                 dealerhand.addCard(await deck.deal(message))
                 dealerhand.addCard(await deck.deal(message))
-            else:
-                await message.reply("The Dealer Stands")
+
             data['DealerHand']=dealerhand.toString()
             data['Deck'] = deck.toString()
             f = open('data.json', "w")
@@ -221,12 +223,17 @@ async def on_message(message):
             if dealerhand.calcPoints() > 21:
                 await message.reply("The Dealer Busts")
                 await message.reply("You win!")
-                dealerhand = Hand()
-                await dealerhand.display(message, dealer = True, reveal = True)
-                dealerhand.addCard(await deck.deal(message))
-                dealerhand.addCard(await deck.deal(message))
+
             else:
                 await message.reply("The Dealer Stands")
+            if dealerhand.calcPoints() > score and dealerhand.calcPoints() <= 21:
+                await message.reply(f'The Dealer had a score of {dealerhand.calcPoints()}, and won!')
+            elif dealerhand.calcPoints() <= 21:
+                await message.reply(f'The Dealer had a score of {dealerhand.calcPoints()}, therefore you won!')
+            await dealerhand.display(message, True)
+            dealerhand = Hand()
+            dealerhand.addCard(await deck.deal(message))
+            dealerhand.addCard(await deck.deal(message))
             data['DealerHand'] = dealerhand.toString()
 
             data['Deck'] = deck.toString()
