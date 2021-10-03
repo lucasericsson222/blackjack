@@ -5,10 +5,14 @@ import numpy as np
 
 class Card:
    
-    async def display(self, message):
+    async def display(self, message, dealer=False):
         myarrayofcards = ["","A","2","3","4","5","6", "7", "8","9", "10", "J", "Q", "K"]
         myarrayofsuits = ["H","D","S","C"]
-        todisplay = f'{myarrayofcards[int(self.number)]}{myarrayofsuits[int(self.suite)]}'
+        todisplay = ""
+        if dealer:
+            todisplay = f'Dealer: {myarrayofcards[int(self.number)]}{myarrayofsuits[int(self.suite)]}'
+        else:
+            todisplay = f'{myarrayofcards[int(self.number)]}{myarrayofsuits[int(self.suite)]}'
         await message.reply(todisplay)
 
     def __init__(self,number,suite) -> None:
@@ -30,7 +34,12 @@ class Deck:
                 self.mydeckarray.append(Card(number,suite))
     def shuffle(self) -> None:
         np.random.shuffle(self.mydeckarray)
-    def deal(self) -> Card:
+    async def deal(self, message = 0) -> Card:
+        if self.numberOfCards() == 0:
+            self.__init__()
+            self.shuffle()
+            if message != 0:
+                await message.reply("NEW DECK!")
         mycard = self.mydeckarray[0]
         self.mydeckarray.pop(0)
         return mycard
@@ -45,6 +54,9 @@ class Deck:
         self.mydeckarray = []
         mylist = mystr.split(',')
         j = -1
+        if len(mystr) == 0:
+            self = Deck()
+            return
         for i in range(0, len(mylist)):
             j += 1
             if j % 2 == 1:
@@ -62,20 +74,33 @@ class Hand:
     def calcPoints(self)->int:
         points = 0
         for card in self.myhandarray:
-            if 1 < card.number < 11:
-                points += card.number
-            if 10 < card.number < 14:
+            if 1 < int(card.number) < 11:
+                points += int(card.number)
+            if 10 < int(card.number) < 14:
                 points += 10
         for card in self.myhandarray:
-            if card.number == 1:
+            if int(card.number) == 1:
                 if 21 - points > 11:
                     points += 11
                 else: 
                     points += 1           
         return points 
-    async def display(self, message, player=True):
-        for card in self.myhandarray:
-            await card.display(message)
+    async def display(self, message, dealer=False, reveal = True):
+        if reveal:
+            for card in self.myhandarray:
+                await card.display(message, dealer)
+        else:
+            i = 0
+            for card in self.myhandarray:
+                if i == 0:
+                    if dealer:
+                        await message.reply("Dealer: ##")
+                    else:
+                        await message.reply("##")
+                else:
+                    await card.display(message, dealer)
+                i += 1
+        
     def toString(self)->str:
         mystring = ""
         for card in self.myhandarray:
@@ -110,8 +135,8 @@ async def on_ready():
         deck = Deck()
         deck.shuffle()
         print(deck.numberOfCards())
-        myhand.addCard(deck.deal())
-        myhand.addCard(deck.deal())
+        myhand.addCard(await deck.deal())
+        myhand.addCard(await deck.deal())
         data['DealerHand'] = myhand.toString()
         data['Deck'] = deck.toString()
     f = open("data.json","w")
@@ -130,19 +155,94 @@ async def on_message(message):
         f = open('data.json')
         data = json.load(f)
         f.close()
+        mycommand = message.content.removeprefix("$BlackJack ")
         if message.author.name not in data:
             # create a new hand and display it
             deck = Deck(True)
             deck.fromString(data['Deck'])
             playerhand = Hand()
-            playerhand.addCard(deck.deal())
-            playerhand.addCard(deck.deal())
+            playerhand.addCard(await deck.deal(message))
+            playerhand.addCard(await deck.deal(message))
             await playerhand.display(message)
             data[message.author.name] = playerhand.toString()
             data["Deck"] = deck.toString()
+            if playerhand.calcPoints() == 21:
+                await message.reply("You win!")
+                data.pop(message.author.name)
             f = open('data.json', "w")
             json.dump(data, f)
             f.close()
+        elif mycommand.startswith('Hit') and message.author.name in data:
+            deck = Deck(True)
+            deck.fromString(data['Deck'])
+            playerhand = Hand()
+            playerhand.fromString(data[message.author.name])
+            playerhand.addCard(await deck.deal(message))
+            await playerhand.display(message)
+            data[message.author.name] = playerhand.toString()
+            if playerhand.calcPoints() > 21:
+                await message.reply("Bust")
+                data.pop(message.author.name)
+            if playerhand.calcPoints() == 21:
+                await message.reply("You win!")
+                data.pop(message.author.name)
+            dealerhand = Hand()
+            dealerhand.fromString(data['DealerHand'])
+            if dealerhand.calcPoints() < 17:
+                await message.reply("The Dealer Hits")
+                dealerhand.addCard(await deck.deal(message))
+            if dealerhand.calcPoints() > 21:
+                await message.reply("The Dealer Busts")
+                await message.reply("You win!")
+                data.pop(message.author.reply)
+                dealerhand = Hand()
+                await dealerhand.display(message, dealer = True, reveal = True)
+                dealerhand.addCard(await deck.deal(message))
+                dealerhand.addCard(await deck.deal(message))
+            else:
+                await message.reply("The Dealer Stands")
+            data['DealerHand']=dealerhand.toString()
+            data['Deck'] = deck.toString()
+            f = open('data.json', "w")
+            json.dump(data, f)
+            f.close()
+        elif mycommand.startswith('Stand') and message.author.name in data:
+            deck = Deck()
+            deck.fromString(data['Deck'])
+            playerhand = Hand()
+            playerhand.fromString(data[message.author.name])
+            score = playerhand.calcPoints()
+            await message.reply(f'You got a score of {score}')
+            dealerhand = Hand()
+            dealerhand.fromString(data['DealerHand'])
+            while(dealerhand.calcPoints() < 17):
+                await message.reply("The Dealer Hits.")
+                dealerhand.addCard(await deck.deal(message))
+            if dealerhand.calcPoints() > 21:
+                await message.reply("The Dealer Busts")
+                await message.reply("You win!")
+                dealerhand = Hand()
+                await dealerhand.display(message, dealer = True, reveal = True)
+                dealerhand.addCard(await deck.deal(message))
+                dealerhand.addCard(await deck.deal(message))
+            else:
+                await message.reply("The Dealer Stands")
+            data['DealerHand'] = dealerhand.toString()
+
+            data['Deck'] = deck.toString()
+            data[message.author.name]
+            data.pop(message.author.name)
+            f = open('data.json', "w")
+            json.dump(data, f)
+            f.close()
+        elif mycommand.startswith('Dealer'):
+            dealerhand = Hand()
+            dealerhand.fromString(data['DealerHand'])
+            await dealerhand.display(message, dealer=True, reveal = False)
+        elif message.author.name in data:
+            playerhand = Hand()
+            playerhand.fromString(data[message.author.name])
+            await playerhand.display(message)
 
             
 
